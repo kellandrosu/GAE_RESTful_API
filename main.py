@@ -1,34 +1,56 @@
+
+
 from google.appengine.ext import ndb
-from flask import Flask, render_template, request, jsonify
+import logging
+from flask import Flask, render_template, request, jsonify, json
 
 
 app = Flask(__name__)
 
+logging.basicConfig(level=logging.DEBUG)
 
 #use flask to handle requests. 
 	#interpret request body using json
 
 #boat entity definition
 class Boat(ndb.Model):
-    id = ndb.IntegerProperty()
+#    id = ndb.StringProperty()
     name = ndb.StringProperty()
     type = ndb.StringProperty()
     length = ndb.FloatProperty()
     at_sea = ndb.BooleanProperty(default=True)
 
 
-@app.route('/boat', methods=["POST", "GET"])
+@app.route('/boat', methods=["POST"])
 def createBoat():
-	boat = Boat(
-    	id=123, name='Boaty McBoatface', type="Tugboat", length=10, at_sea=False)
-	boatkey = boat.put()
 
-	message = {
-		'id' : boatkey.urlsafe()
-	}
-	resp = jsonify(message)
-	resp.status_code = 200
-	return resp
+	reqObj = request.get_json(force=True)
+
+	if 'name' in reqObj and 'type' in reqObj and 'length' in reqObj:
+		
+		boat = Boat(
+	    	name=reqObj['name'],
+	    	type=reqObj['type'],
+	    	length=reqObj['length']
+	    	)
+
+		if 'at_sea' in reqObj :
+			boat.at_sea = reqObj['at_sea']
+
+		#write boat to ndb
+		boatkey = boat.put()
+
+		#compile response body
+		message = {
+			'id' : boatkey.id() #boatkey.urlsafe()
+		}
+
+		#prepare and send response
+		resp = jsonify(message)
+		resp.status_code = 200
+		return resp
+	else:
+		return "400 Bad Request"
 	
 
 @app.route('/boat/<boatId>', methods=['GET'])
