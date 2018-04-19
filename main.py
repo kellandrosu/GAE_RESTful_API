@@ -41,24 +41,44 @@ def createBoat():
 		boatkey = boat.put()
 
 		#compile response body
-		message = {
-			'id' : boatkey.id() #boatkey.urlsafe()
+		payload = {
+			'id' : boat.key.urlsafe()
 		}
+		status_code = 200
 
-		#prepare and send response
-		resp = jsonify(message)
-		resp.status_code = 200
-		return resp
 	else:
-		return "400 Bad Request"
+		status_code = 400
+		payload = "400 Bad Request"
 	
+	#prepare and send response
+	resp = jsonify(payload)
+	resp.status_code = status_code
+
+	return resp
 
 @app.route('/boat/<boatId>', methods=['GET'])
-def getBoat():
+def getBoat(boatId):
+
 	boatkey = ndb.Key(urlsafe=boatId)
 	boat = boatkey.get()
 
-	return boat.name
+	if boat != None :
+		payload = {
+			'name' : boat.name,
+			'type' : boat.type,
+			'length' : boat.length,
+			'id' : boatId
+		}
+		status_code = 200
+	else:
+		status_code = 400
+		payload = "Error: Could not find Boat with id " + boatId
+
+	 #prepare and send response
+	resp = jsonify(payload)
+	resp.status_code = status_code
+	
+	return resp
 	
 
 
