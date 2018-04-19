@@ -21,7 +21,7 @@ class Boat(ndb.Model):
     at_sea = ndb.BooleanProperty(default=True)
 
 
-@app.route('/boat', methods=["POST"])
+@app.route('/boats', methods=["POST"])
 def createBoat():
 
 	reqObj = request.get_json(force=True)
@@ -48,7 +48,7 @@ def createBoat():
 
 	else:
 		status_code = 400
-		payload = "400 Bad Request"
+		payload = { message: "400 Bad Request" }
 	
 	#prepare and send response
 	resp = jsonify(payload)
@@ -56,23 +56,18 @@ def createBoat():
 
 	return resp
 
-@app.route('/boat/<boatId>', methods=['GET'])
+@app.route('/boats/<boatId>', methods=['GET'])
 def getBoat(boatId):
 
 	boatkey = ndb.Key(urlsafe=boatId)
 	boat = boatkey.get()
 
 	if boat != None :
-		payload = {
-			'name' : boat.name,
-			'type' : boat.type,
-			'length' : boat.length,
-			'id' : boatId
-		}
+		payload = boatToJson(boat)
 		status_code = 200
 	else:
 		status_code = 400
-		payload = "Error: Could not find Boat with id " + boatId
+		payload = { message: "Error: Could not find Boat with id " + boatId }
 
 	 #prepare and send response
 	resp = jsonify(payload)
@@ -80,24 +75,29 @@ def getBoat(boatId):
 	
 	return resp
 	
+@app.route('/boats', methods=['GET'])
+@app.route('/boats/', methods=['GET'])
+def getBoats():
+
+	qry = Boat.query()
+
+	payload = []
+
+	for boat in qry :
+		payload.append(boatToJson(boat))
+
+	resp = jsonify(payload)
+	resp.status_code = 200
+	
+	return resp
 
 
-@app.route('/form')
-def form():
-    return render_template('form.html')
-
-
-@app.route('/submitted', methods=['POST'])
-def submitted_form():
-	name = request.form['name']
-	email = request.form['email']
-	site = request.form['site_url']
-	comments = request.form['comments']
-
-	return render_template(
-		'submitted_form.html',
-		name=name,
-		email=email,
-		site=site,
-		comments=comments
-		)
+def boatToJson(boat):
+	payload = {
+			'name' : boat.name,
+			'type' : boat.type,
+			'length' : boat.length,
+			'id' : boat.key.urlsafe(),
+			'at_sea' : boat.at_sea
+		}
+	return payload
