@@ -49,7 +49,7 @@ def createBoat():
 
 	else:
 		status_code = 400
-		payload = { message: "400 Bad Request" }
+		payload = { 'message': "400 Bad Request" }
 	
 	#prepare and send response
 	resp = jsonify(payload)
@@ -59,8 +59,8 @@ def createBoat():
 
 
 #get or modify boat by id
-@app.route('/boats/<boatId>', methods=['GET', 'PATCH'])
-#@app.route('/boats/<boatId>/', methods=['GET', 'PATCH'])
+@app.route('/boats/<boatId>', methods=['GET', 'PATCH', 'DELETE'])
+@app.route('/boats/<boatId>/', methods=['GET', 'PATCH', 'DELETE'])
 def getBoat(boatId):
 
 	boatkey = ndb.Key(urlsafe=boatId)
@@ -68,27 +68,36 @@ def getBoat(boatId):
 
 	if boat != None :	
 
-		if request.method == 'PATCH' :
-			reqObj = request.get_json(force=True)
-			#iterate through
-			print reqObj
-			if 'name' in reqObj :
-				boat.name = reqObj['name']
-			if 'type' in reqObj :
-				boat.type = reqObj['type']
-			if 'length' in reqObj:
-				boat.length = reqObj['length']
-			if 'at_sea' in reqObj :
-				boat.at_sea = reqObj['at_sea']
+		#handle DELETE
+		if request.method == 'DELETE' :
 
-			boat.put()
+			boatkey.delete()
+			payload = ""	#empty payload
 
-		payload = boatToJson(boat)
+		#handle GET and PATCH
+		else :
+			if request.method == 'PATCH' :
+				reqObj = request.get_json(force=True)
+				#iterate through
+				print reqObj
+				if 'name' in reqObj :
+					boat.name = reqObj['name']
+				if 'type' in reqObj :
+					boat.type = reqObj['type']
+				if 'length' in reqObj:
+					boat.length = reqObj['length']
+				if 'at_sea' in reqObj :
+					boat.at_sea = reqObj['at_sea']
+
+				boat.put()
+
+			payload = boatToJson(boat)
+			
 		status_code = 200
 
 	else:
 		status_code = 400
-		payload = { message: "Error: Could not find Boat with id " + boatId }
+		payload = 'Error: Could not find Boat with id=' + boatId
 
 	 #prepare and send response
 	resp = jsonify(payload)
