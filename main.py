@@ -29,7 +29,7 @@ class Departure(ndb.Model):
 class Slip(ndb.Model):
 	number = ndb.IntegerProperty()
 	current_boat = ndb.KeyProperty(Boat)
-	arrival_date = ndb.DateProperty()
+	arrival_date = ndb.StringProperty()
 	#departure_date = ndb.StructuredProperty(Departure, repeated=True)
 
 #manages slip human-readable numbers 
@@ -60,16 +60,70 @@ def createSlip():
 	assignSlipNum(slip)
 	slip.put()
 
-	resp = jsonify( { 
-		"id": slip.key.urlsafe(), 
-		"number" : slip.number,
-		"current_boat" : slip.current_boat,
-		"arrival_date" : slip.arrival_date 
-	} )
-
+	resp = slipToJSON(slip)
 	resp.status_code = 200
+
 	return resp
 
+
+
+@app.route('/slips/<slipId>', methods=['GET', 'PATCH', 'DELETE'])
+def handleSlipId(slipId):
+	slipKey = ndb.Key(urlsafe=slipId)
+	slip = slipKey.get()
+
+	if slipKey.kind() == 'Slip' and slip:
+		if request.method == 'DELETE' :
+			slipKey.delete()
+			payload = "Deleted: " + slipKey	#empty payload
+		else:# TODO:
+
+			if request.method == 'PATCH':
+				reqObj = request.get_json(force=True)
+
+				if 'number' in reqObj:
+					#check if number is taken 
+					qry = Slip.query(Slip.number==reqObj.number, Slip.taken==False)
+					if not qry.fetch():
+						#if slipNum is taken, cancel operation and return with error
+						resp = jsonify( { 'Error' : "Slip number "+str(reqObj.number)+" is unavailable." } )
+						resp.status_code = 400						
+						return resp
+					else:
+						assignSlipNum(slip=slip, number=reqObj.number)
+
+				if 'arrival_date' in reqObj:
+					slip.arrival_date = reqObj.arrival_date
+
+				slip.put()
+
+			#default GET behavior
+			payload = slipToJSON(slip)
+			
+		status_code = 200
+
+	else:
+		status_code = 400
+		payload = 'Error: Could not find Boat with id=' + boatId
+
+	#prepare and send response
+	resp = jsonify(payload)
+	resp.status_code = status_code
+	
+	return resp
+
+#get all boats
+@app.route('/slips', methods=['GET'])
+def getAllSlips():
+
+	qry = Slip.query()
+	payload = []
+	for slip in qry :
+		payload.append(slipToJSON(slip))
+	resp = jsonify(payload)
+	resp.status_code = 200
+	
+	return resp
 
 
 #create new boat
@@ -109,35 +163,31 @@ def createBoat():
 
 #get, modify or delete boat by id
 @app.route('/boats/<boatId>', methods=['GET', 'PATCH', 'DELETE'])
-def getBoat(boatId):
+def handleBoatId(boatId):
 
 	boatkey = ndb.Key(urlsafe=boatId)
 	boat = boatkey.get()
 
-	if boat != None :	
-
+	if boatkey.kind() == 'Boat' and boat:	
 		#handle DELETE
 		if request.method == 'DELETE' :
-
 			boatkey.delete()
-			payload = ""	#empty payload
+			payload = "Deleted: " + boatId	#empty payload
 
 		#handle GET and PATCH
 		else :
 
 			if request.method == 'PATCH' :
-				print 'here'
 				reqObj = request.get_json(force=True)
-				#iterate through
-				print reqObj
+
 				if 'name' in reqObj :
 					boat.name = reqObj['name']
 				if 'type' in reqObj :
 					boat.type = reqObj['type']
 				if 'length' in reqObj:
 					boat.length = reqObj['length']
-				if 'at_sea' in reqObj :
-					boat.at_sea = reqObj['at_sea']
+				#if 'at_sea' in reqObj :
+				#	boat.at_sea = reqObj['at_sea']
 
 				boat.put()
 
@@ -176,31 +226,55 @@ def getBoats():
 #-----------------  Helper Functions  ------------------
 
 #finds or creates available slip number and updates slip with new number
-def assignSlipNum(slip):
+def assignSlipNum(slip, number=None):
 
 	qry = SlipNum.query()
 
-	if not qry.fetch():
+	#CASE: number is specified, so check if exists
+	if not number is None :
+		slipNum = qry.filter(Slip.number==Getnumber).fetch()[0]
+		#CASE: SlipNum doesn't exist, so create slipNum
+		if not slipNum:
+			slipNum = SlipNum(number=number, taken=True)
+		#CASE: slipNum exists and is available, so make unavailable
+		elif slipNum.taken == False:
+			slipNum.taken = True
+		#CASE: slipNum exists and is Unavailable, so exit function
+		else:
+			return
+	#CASE: number not specified, and SlipNum table is empty, so create first SlipNum
+	elif not qry.fetch():
 		#if SlipNum is empty, create first number, add to set and update slip
 		slipNum = SlipNum(number=1, taken=True)
-
+	#CASE: number not specified, and SlipNum table is not empty
 	else:
 		availableNums = qry.filter(SlipNum.taken==False)
-		
+		#CASE: There are no available SlipNums, so create new slipNum
 		if not availableNums.fetch():
 			#create new SlipNum from largest in qry + 1
 			newNumber = qry.order(-SlipNum.number).fetch()[0].number + 1
 			slipNum = SlipNum(number=newNumber, taken=True)
 
 		else:
-			#get lowest available and assign it
+			#CASE: Ther is available SlipNum, so get lowest available and assign it
 			slipNum = availableNums.order(SlipNum.number).iter().next()
 			slipNum.taken = True
 	
-	print 'assigning slip number ' + str(slipNum.number)
+	#update slipnum table
 	slipNum.put()
+	#assign slipNum to slip
 	slip.number = slipNum.number
+	slip.put()
+	return
 
+def slipToJSON(slip):
+	payload = { 
+		"id": slip.key.urlsafe(), 
+		"number" : slip.number,
+		"current_boat" : slip.current_boat,
+		"arrival_date" : slip.arrival_date 
+	}
+	return payload
 
 #returns json object of given Boat class
 def boatToJson(boat):
