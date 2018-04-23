@@ -3,6 +3,7 @@
 from google.appengine.ext import ndb
 import logging
 from flask import Flask, render_template, request, jsonify, json
+import datetime
 
 
 app = Flask(__name__)
@@ -28,7 +29,7 @@ class Departure(ndb.Model):
 
 class Slip(ndb.Model):
 	number = ndb.IntegerProperty()
-	current_boat = ndb.KeyProperty(Boat)
+	current_boat = ndb.StringProperty(default="")
 	arrival_date = ndb.StringProperty()
 	#departure_date = ndb.StructuredProperty(Departure, repeated=True)
 
@@ -57,12 +58,12 @@ def createSlip():
 
 	slip = Slip()		
 
-	assignSlipNum(slip)
+	assignSlipNum(slip=slip)
 	slip.put()
 
-	resp = slipToJSON(slip)
+	resp = jsonify(slipToJSON(slip))
 	resp.status_code = 200
-
+	
 	return resp
 
 
@@ -74,10 +75,15 @@ def handleSlipId(slipId):
 
 	if slipKey.kind() == 'Slip' and slip:
 		if request.method == 'DELETE' :
+			#if slip has a boat, undock it
+			if slip.current_boat:
+				boatToUndock = ndb.Key(urlsafe=slip.current_boat).get()
+				undockBoat( boatToUndock )
+
 			slipKey.delete()
 			payload = "Deleted: " + slipKey	#empty payload
-		else:# TODO:
 
+		else:
 			if request.method == 'PATCH':
 				reqObj = request.get_json(force=True)
 
@@ -87,7 +93,7 @@ def handleSlipId(slipId):
 					if not qry.fetch():
 						#if slipNum is taken, cancel operation and return with error
 						resp = jsonify( { 'Error' : "Slip number "+str(reqObj.number)+" is unavailable." } )
-						resp.status_code = 400						
+						resp.status_code = 403						
 						return resp
 					else:
 						assignSlipNum(slip=slip, number=reqObj.number)
@@ -103,7 +109,7 @@ def handleSlipId(slipId):
 		status_code = 200
 
 	else:
-		status_code = 400
+		status_code = 403
 		payload = 'Error: Could not find Boat with id=' + boatId
 
 	#prepare and send response
@@ -118,8 +124,10 @@ def getAllSlips():
 
 	qry = Slip.query()
 	payload = []
-	for slip in qry :
-		payload.append(slipToJSON(slip))
+
+	for slip in qry:
+		payload.append( slipToJSON(slip) )
+	
 	resp = jsonify(payload)
 	resp.status_code = 200
 	
@@ -134,29 +142,72 @@ def createBoat():
 
 	if 'name' in reqObj and 'type' in reqObj and 'length' in reqObj:
 		
-		boat = Boat(
-	    	name=reqObj['name'],
-	    	type=reqObj['type'],
-	    	length=reqObj['length'],
-	    	at_sea=True
-	    	)
+		if isNameAvailable( reqObj['name'] ):
 
-		#write boat to ndb
-		boatkey = boat.put()
+			boat = Boat(
+		    	name=reqObj['name'],
+		    	type=reqObj['type'],
+		    	length=reqObj['length'],
+		    	at_sea=True
+		    	)
 
-		#compile response body
-		payload = {
-			'id' : boat.key.urlsafe()
-		}
-		status_code = 200
+			#write boat to ndb
+			boatkey = boat.put()
+
+			#compile response body
+			payload = {	'id' : boat.key.urlsafe()	}
+			status_code = 200
+
+		else:
+			payload = {	'Error' : "Name in use"	}
+			status_code = 403
 
 	else:
-		status_code = 400
-		payload = { 'message': "400 Bad Request" }
+		status_code = 403
+		payload = { 'Error': "403 Bad Request" }
 	
 	#prepare and send response
 	resp = jsonify(payload)
 	resp.status_code = status_code
+
+	return resp
+
+@app.route('/boats/<boatId>/dock', methods=['PUT', 'DELETE'])
+def handleDockBoat(boatId):
+
+	#check if valid boatId
+	boat = ndb.Key(urlsafe=boatId).get()
+
+	if boat:
+			if request.method == 'PUT':
+				reqObj = request.get_json(force=True)
+
+				slipId = reqObj.slipId if 'slipId' in reqObj else None
+				date =  reqObj.date if 'date' in reqObj else None
+
+				respObj = dockBoat(boat, slipId=slipId, date=date)
+
+			elif request.method == 'DELETE':
+				if boat.at_sea:
+					respObj = {
+						'message': 'Error: Boat is not docked',
+						'status_code' : 403
+					}
+				else:
+					undockBoat(boat)
+					respObj = {
+						'message': boatToJSON(boat),
+						'status_code' : 403
+					}
+	else:
+		respObj = {
+			'message': 'Error: Invalid Boat Id',
+			'status_code' : 403
+		}
+
+
+	resp = jsonify(respObj['message'])
+	resp.status_code = respObj['status_code']
 
 	return resp
 
@@ -171,32 +222,42 @@ def handleBoatId(boatId):
 	if boatkey.kind() == 'Boat' and boat:	
 		#handle DELETE
 		if request.method == 'DELETE' :
+			if not boat.at_sea:
+				undockBoat(boat)
+
 			boatkey.delete()
-			payload = "Deleted: " + boatId	#empty payload
+			payload = "Deleted Boat: " + boatId	#empty payload
 
 		#handle GET and PATCH
 		else :
-
 			if request.method == 'PATCH' :
 				reqObj = request.get_json(force=True)
 
 				if 'name' in reqObj :
+
+					#if name isn't available, abort
+					if not isNameAvailable( reqObj['name'] ):
+						resp = jsonify('Error: Name in use')
+						resp.status_code = 403
+						return resp
+
 					boat.name = reqObj['name']
+
 				if 'type' in reqObj :
 					boat.type = reqObj['type']
+
 				if 'length' in reqObj:
 					boat.length = reqObj['length']
-				#if 'at_sea' in reqObj :
-				#	boat.at_sea = reqObj['at_sea']
 
 				boat.put()
 
-			payload = boatToJson(boat)
+			#default behavior for GET
+			payload = boatToJSON(boat)
 			
 		status_code = 200
 
 	else:
-		status_code = 400
+		status_code = 403
 		payload = 'Error: Could not find Boat with id=' + boatId
 
 	 #prepare and send response
@@ -215,7 +276,7 @@ def getBoats():
 	payload = []
 
 	for boat in qry :
-		payload.append(boatToJson(boat))
+		payload.append(boatToJSON(boat))
 
 	resp = jsonify(payload)
 	resp.status_code = 200
@@ -223,7 +284,80 @@ def getBoats():
 	return resp
 
 
-#-----------------  Helper Functions  ------------------
+#------------------------------  HELPER FUNCTIONS  --------------------------------
+
+#removes boat from slip
+def undockBoat(boat):
+
+	slip = Slip.query( Slip.current_boat==boat.key.urlsafe() ).fetch()
+
+	if slip[0]:
+		slip[0].current_boat = ""
+		slip[0].arrival_date = None
+		slip[0].put()
+
+	boat.at_sea = True
+	boat.put()
+
+#check if name is available
+def isNameAvailable(name):
+
+	boats = Boat.query(Boat.name==name).fetch()
+
+	if boats:
+		return False
+	
+	return True
+
+#handles the database model
+#returns the json object for response
+def dockBoat(boat, slipId=None, date=None):
+
+	if not boat.at_sea:
+		undockBoat(boat)
+
+	#get specified slip	
+	if slipId:
+		slipKey = ndb.Key(urlsafe=slipId)
+		slip = slipKey.get()
+
+		if slip.current_boat:
+			return {
+				'status_code': 403,
+				'message': "Error: Specified slip is occupied"
+			}
+	
+	#find available slip
+	else:
+		#get first open slip
+		availableSlips = Slip.query(Slip.current_boat == "").fetch()
+		
+		if not availableSlips:
+			return {
+				"status_code": 403,
+				"message": "Error: No slips available"
+			}
+		else:
+			slip = availableSlips[0]
+
+	#get current date if not provided
+	if not date:
+		now = datetime.datetime.now()
+		date = "%d/%d/%d" % (now.month, now.day, now.year)
+
+	
+	boat.at_sea = False
+	boat.put()
+
+	slip.current_boat = boat.key.urlsafe()
+	slip.arrival_date = str(date)
+	slipKey = slip.put()
+
+	return 	{
+				'status_code': 200,
+				'message': "Boat Docked at Slip :" + slip.number
+			}
+	
 
 #finds or creates available slip number and updates slip with new number
 def assignSlipNum(slip, number=None):
@@ -277,7 +411,7 @@ def slipToJSON(slip):
 	return payload
 
 #returns json object of given Boat class
-def boatToJson(boat):
+def boatToJSON(boat):
 	payload = {
 			'name' : boat.name,
 			'type' : boat.type,
