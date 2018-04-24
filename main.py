@@ -11,7 +11,8 @@ app = Flask(__name__)
 #set print to console
 logging.basicConfig(level=logging.DEBUG)
 
-#disables strict slashes GLOBALLY https://stackoverflow.com/questions/33241050/trailing-slash-triggers-404-in-flask-path-rule?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
+#disables strict slashes GLOBALLY 
+#from https://stackoverflow.com/questions/33241050/trailing-slash-triggers-404-in-flask-path-rule?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
 app.url_map.strict_slashes = False
 
 
@@ -66,6 +67,29 @@ def createSlip():
 	
 	return resp
 
+#handler for GET boat in slipt
+@app.route('/slips/<slipId>/boat', methods=['GET'])
+def viewBoatInSlip(slipId):
+	slip = ndb.Key(urlsafe=slipId).get()
+
+	#verify slip id
+	if slip.key.kind() == 'Slip' and slip:
+		boatId = slip.current_boat
+		boat = ndb.Key(urlsafe=boatId).get()
+		payload = {}
+		
+		if boat:
+			payload = boatToJSON(boat)
+			status_code = 200
+
+	else:
+		status_code = 404
+		payload = 'Error: Could not find Slip with id=' + slipId
+
+	resp = jsonify(payload)
+	resp.status_code = status_code
+	
+	return resp
 
 #handler for GET, PATCH, DELETE /slips/:id
 @app.route('/slips/<slipId>', methods=['GET', 'PATCH', 'DELETE'])
@@ -319,7 +343,7 @@ def isNameAvailable(name):
 #handles the database model
 #returns the json object for response
 def dockBoat(boat, slipId=None, date=None):
-	print 'hello'
+	
 	if not boat.at_sea:
 		return {
 			'status_code': 403,
@@ -331,10 +355,10 @@ def dockBoat(boat, slipId=None, date=None):
 		slipKey = ndb.Key(urlsafe=slipId)
 		slip = slipKey.get()
 
-		if slip.current_boat:
+		if slip and slip.current_boat:
 			return {
 				'status_code': 403,
-				'message': "Error: Specified slip is occupied"
+				'message': "Error: Slip is Occupied"
 			}
 	
 	#find available slip
