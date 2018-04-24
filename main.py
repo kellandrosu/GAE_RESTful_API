@@ -174,19 +174,21 @@ def createBoat():
 
 @app.route('/boats/<boatId>/dock', methods=['PUT', 'DELETE'])
 def handleDockBoat(boatId):
-
-	#check if valid boatId
+	
 	boat = ndb.Key(urlsafe=boatId).get()
-
-	if boat:
+	#check if valid boatId
+	if boat and boat.key.kind() == 'Boat':
+			#PUT handler
 			if request.method == 'PUT':
-				reqObj = request.get_json(force=True)
 
-				slipId = reqObj.slipId if 'slipId' in reqObj else None
-				date =  reqObj.date if 'date' in reqObj else None
-
+				reqObj = request.get_json(force=True)		
+				#save slip ID and date if available
+				slipId = reqObj['slipId'] if 'slipId' in reqObj else None
+				date =  reqObj['date'] if 'date' in reqObj else None	
+				
 				respObj = dockBoat(boat, slipId=slipId, date=date)
 
+			#DELETE handler
 			elif request.method == 'DELETE':
 				if boat.at_sea:
 					respObj = {
@@ -204,7 +206,6 @@ def handleDockBoat(boatId):
 			'message': 'Error: Invalid Boat Id',
 			'status_code' : 403
 		}
-
 
 	resp = jsonify(respObj['message'])
 	resp.status_code = respObj['status_code']
@@ -312,9 +313,12 @@ def isNameAvailable(name):
 #handles the database model
 #returns the json object for response
 def dockBoat(boat, slipId=None, date=None):
-
+	print 'hello'
 	if not boat.at_sea:
-		undockBoat(boat)
+		return {
+			'status_code': 403,
+			'message': "Error: Boat currently docked"
+		}
 
 	#get specified slip	
 	if slipId:
@@ -355,7 +359,7 @@ def dockBoat(boat, slipId=None, date=None):
 
 	return 	{
 				'status_code': 200,
-				'message': "Boat Docked at Slip :" + slip.number
+				'message': "Boat Docked at Slip :" + str(slip.number)
 			}
 	
 
