@@ -104,7 +104,7 @@ def handleSlipId(slipId):
 						assignSlipNum( slip=slip, number=reqObj['number'] )
  
 				if 'arrival_date' in reqObj:
-					slip.arrival_date = reqObj.arrival_date
+					slip.arrival_date = reqObj['arrival_date']
 
 				slip.put()
 
@@ -190,7 +190,7 @@ def handleDockBoat(boatId):
 				reqObj = request.get_json(force=True)		
 				#save slip ID and date if available
 				slipId = reqObj['slipId'] if 'slipId' in reqObj else None
-				date =  reqObj['date'] if 'date' in reqObj else None	
+				date =  reqObj['arrival_date'] if 'arrival_date' in reqObj else None	
 				
 				respObj = dockBoat(boat, slipId=slipId, date=date)
 
