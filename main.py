@@ -52,7 +52,7 @@ def deleteAll():
 	return 'All Entities Removed'
 
 
-
+#create new slip
 @app.route('/slips', methods=['POST'])
 def createSlip():
 
@@ -67,37 +67,42 @@ def createSlip():
 	return resp
 
 
-
+#handler for GET, PATCH, DELETE /slips/:id
 @app.route('/slips/<slipId>', methods=['GET', 'PATCH', 'DELETE'])
 def handleSlipId(slipId):
 	slipKey = ndb.Key(urlsafe=slipId)
 	slip = slipKey.get()
 
+	#verify slip id
 	if slipKey.kind() == 'Slip' and slip:
+		
 		if request.method == 'DELETE' :
 			#if slip has a boat, undock it
+			
 			if slip.current_boat:
 				boatToUndock = ndb.Key(urlsafe=slip.current_boat).get()
 				undockBoat( boatToUndock )
 
 			slipKey.delete()
-			payload = "Deleted: " + slipKey	#empty payload
+			payload = "Deleted Slip: " + slipId	#empty payload
 
 		else:
 			if request.method == 'PATCH':
 				reqObj = request.get_json(force=True)
 
 				if 'number' in reqObj:
+
 					#check if number is taken 
-					qry = Slip.query(Slip.number==reqObj.number, Slip.taken==False)
-					if not qry.fetch():
+					qry = SlipNum.query( SlipNum.number==reqObj['number'], SlipNum.taken==False ).fetch()
+
+					if qry:
 						#if slipNum is taken, cancel operation and return with error
-						resp = jsonify( { 'Error' : "Slip number "+str(reqObj.number)+" is unavailable." } )
+						resp = jsonify( { 'Error' : "Slip number "+str(reqObj['number'])+" is unavailable." } )
 						resp.status_code = 403						
 						return resp
 					else:
-						assignSlipNum(slip=slip, number=reqObj.number)
-
+						assignSlipNum( slip=slip, number=reqObj['number'] )
+ 
 				if 'arrival_date' in reqObj:
 					slip.arrival_date = reqObj.arrival_date
 
@@ -109,8 +114,8 @@ def handleSlipId(slipId):
 		status_code = 200
 
 	else:
-		status_code = 403
-		payload = 'Error: Could not find Boat with id=' + boatId
+		status_code = 404
+		payload = 'Error: Could not find Slip with id=' + slipId
 
 	#prepare and send response
 	resp = jsonify(payload)
@@ -172,6 +177,7 @@ def createBoat():
 
 	return resp
 
+#boat docking and undocking handler
 @app.route('/boats/<boatId>/dock', methods=['PUT', 'DELETE'])
 def handleDockBoat(boatId):
 	
@@ -213,7 +219,7 @@ def handleDockBoat(boatId):
 	return resp
 
 
-#get, modify or delete boat by id
+#handler for GET, PATCH, DELETE /boats/:id
 @app.route('/boats/<boatId>', methods=['GET', 'PATCH', 'DELETE'])
 def handleBoatId(boatId):
 
@@ -258,7 +264,7 @@ def handleBoatId(boatId):
 		status_code = 200
 
 	else:
-		status_code = 403
+		status_code = 404
 		payload = 'Error: Could not find Boat with id=' + boatId
 
 	 #prepare and send response
@@ -369,14 +375,14 @@ def assignSlipNum(slip, number=None):
 	qry = SlipNum.query()
 
 	#CASE: number is specified, so check if exists
-	if not number is None :
-		slipNum = qry.filter(Slip.number==Getnumber).fetch()[0]
+	if number :
+		slipNum = qry.filter(SlipNum.number==number).fetch()
 		#CASE: SlipNum doesn't exist, so create slipNum
 		if not slipNum:
 			slipNum = SlipNum(number=number, taken=True)
 		#CASE: slipNum exists and is available, so make unavailable
-		elif slipNum.taken == False:
-			slipNum.taken = True
+		elif slipNum[0].taken == False:
+			slipNum[0].taken = True
 		#CASE: slipNum exists and is Unavailable, so exit function
 		else:
 			return
